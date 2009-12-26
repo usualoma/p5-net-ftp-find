@@ -1,0 +1,18 @@
+Source: libnet-ftp-find-perl
+Section: perl
+Priority: optional
+Build-Depends: debhelper (>= 7)
+Build-Depends-Indep: perl
+Maintainer: Taku Amano <taku@toi-planning.net>
+Standards-Version: 3.8.3
+Homepage: http://search.cpan.org/dist/Net-FTP-Find/
+
+Package: libnet-ftp-find-perl
+Architecture: all
+Depends: ${perl:Depends}, ${misc:Depends}
+Description: Traverse a directory tree through ftp client
+ These are functions for searching through directory trees doing work on each
+ file found similar to the File::Find. Net::FTP::Find provides two functions,
+ "find" and "finddepth". They work similarly but have subtle differences.
+ .
+ This description was automagically extracted from the module by dh-make-perl.
