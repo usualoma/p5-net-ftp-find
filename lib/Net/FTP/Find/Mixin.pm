@@ -86,7 +86,7 @@ sub recursive {
 			$orig_cwd =~ s{^/*}{/};
 		}
 
-		$self->cwd($_)
+		$self->cwd($directory)
 			or return;
 		@entries = $self->dir('.');
 		return unless @entries;
