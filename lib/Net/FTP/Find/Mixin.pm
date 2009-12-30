@@ -3,6 +3,8 @@ package Net::FTP::Find::Mixin;
 use strict;
 use warnings;
 
+our $VERSION = '0.01';
+
 use Carp;
 use File::Spec;
 
@@ -208,7 +210,7 @@ __END__
 
 =head1 NAME
 
-Net::FTP::Find::Mixin - Inject to Net::FTP the function of Net::FTP::Find
+Net::FTP::Find::Mixin - Inject the function of Net::FTP::Find
 
 =head1 SYNOPSIS
 

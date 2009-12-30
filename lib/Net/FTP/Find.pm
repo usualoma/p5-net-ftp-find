@@ -3,6 +3,8 @@ package Net::FTP::Find;
 use strict;
 use warnings;
 
+our $VERSION = '0.01';
+
 use Carp;
 use File::Spec;
 
@@ -14,8 +16,6 @@ use Net::FTP::Find::Mixin qw( Net::FTP::Find );
 use Exporter;
 use base qw( Exporter );
 our @EXPORT_OK = qw( find finddepth );
-
-our $VERSION = '0.01';
 
 1;
 __END__
