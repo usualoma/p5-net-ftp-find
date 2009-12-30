@@ -97,6 +97,8 @@ test_tcp(
 			}, $target);
 			is($str_ftp, "$target/testdir$target/testdir/testfile.txt");
 		}
+
+		ok($ftp->quit);
 	},
 );
 

@@ -59,7 +59,6 @@ sub find {
 sub recursive {
 	my $self = shift;
 	my ($opts, $directory, $depth) = @_;
-	my $pkg = ref($self);
 
 	our (
 		$name, $dir,
@@ -144,7 +143,7 @@ sub recursive {
 				'permissions', 'link', 'user', 'group', 'size',
 				'month', 'mday', 'year_or_time'
 			) {
-				${$pkg.'::'.$k} = $$k;
+				${'Net::FTP::Find::'.$k} = $$k;
 			}
 
 			$opts->{'wanted'}($self);
