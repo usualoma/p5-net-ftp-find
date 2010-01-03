@@ -1,4 +1,7 @@
 Revision history for Perl extension Net::FTP::Find
 
+0.011   Sun Jan  3 15:24:41 JST 2010
+        - Specified the required version for test.
+
 0.01    Sun Dec 27 06:23:10 2009
         - original version
