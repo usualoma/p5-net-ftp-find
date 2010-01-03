@@ -7,7 +7,7 @@ requires 'Net::FTP';
 tests 't/*.t';
 author_tests 'xt';
 
-test_requires 'Test::More';
+test_requires 'Test::More' => '0.88';
 test_requires 'Test::TCP';
 test_requires 'Test::FTP::Server';
 
