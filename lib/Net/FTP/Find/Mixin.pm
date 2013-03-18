@@ -51,16 +51,18 @@ sub find {
 		croak('no &wanted subroutine given');
 	}
 
+	my $cwd = $self->pwd;
+	$cwd =~ s{/*\z}{/} if $cwd;
 
 	foreach my $d (@directories) {
-		&recursive($self, \%options, $d, 0)
+		&recursive( $self, $d =~ m!\A/! ? '' : $cwd, \%options, $d, 0 )
 			or return;
 	}
 }
 
 sub recursive {
 	my $self = shift;
-	my ($opts, $directory, $depth) = @_;
+	my ($cwd, $opts, $directory, $depth) = @_;
 
 	our (
 		$name, $dir,
@@ -90,16 +92,18 @@ sub recursive {
 		$self->cwd($directory)
 			or return;
 		@entries = $self->dir('.');
-		return unless @entries;
 
-		defined($dir = $self->pwd)
-			or return;
+		$dir = $self->pwd;
 		if ($dir) {
 			$dir =~ s{^/*}{/};
 		}
-		else {
+		elsif (defined($dir)) {
 			$dir = $directory;
 		}
+
+		$self->cwd($orig_cwd) if $depth == 0;
+
+		return if ! @entries || ! $directory;
 	}
 
 	my @dirs = ();
@@ -123,12 +127,14 @@ sub recursive {
 		$_ = $name if $opts->{'no_chdir'} && $depth != 0;
 		my $next = $_;
 
+		$name =~ s/$cwd// if $cwd;
+		$dir  =~ s/$cwd// if $cwd;
 
 		local ($is_directory, $is_symlink, $mode)
 			= &parse_permissions($self, $permissions);
 
 		if ($is_directory && $opts->{'bydepth'}) {
-			&recursive($self, $opts, $next, $depth+1)
+			&recursive($self, $cwd, $opts, $next, $depth+1)
 				or return;
 		}
 
@@ -152,7 +158,7 @@ sub recursive {
 		}
 
 		if ($is_directory && ! $opts->{'bydepth'}) {
-			&recursive($self, $opts, $next, $depth+1)
+			&recursive($self, $cwd, $opts, $next, $depth+1)
 				or return;
 		}
 	}
