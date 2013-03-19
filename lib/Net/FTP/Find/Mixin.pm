@@ -7,6 +7,7 @@ our $VERSION = '0.011';
 
 use Carp;
 use File::Spec;
+use File::Basename;
 
 sub import {
 	my $class = shift;
@@ -80,6 +81,13 @@ sub recursive {
 		@entries = $self->dir($directory);
 		return unless @entries;
 
+		if ($depth == 0) {
+			if (! grep {((split(/\s+/, $_, 9))[8] || '') eq '.'} @entries) {
+				build_start_dir( $self, \@entries, $directory,
+					dirname($directory) );
+			}
+		}
+
 		$dir = $directory;
 	}
 	else {
@@ -101,7 +109,15 @@ sub recursive {
 			$dir = $directory;
 		}
 
-		$self->cwd($orig_cwd) if $depth == 0;
+		if ($depth == 0) {
+			if (! grep {((split(/\s+/, $_, 9))[8] || '') eq '.'} @entries) {
+				$self->cwd('..')
+					or return;
+				build_start_dir($self, \@entries, $directory, '.');
+			}
+
+			$self->cwd($orig_cwd);
+		}
 
 		return if ! @entries || ! $directory;
 	}
@@ -209,6 +225,44 @@ sub parse_permissions {
 	}
 
 	($type eq 'd', $type eq 'l', $mode);
+}
+
+sub build_start_dir {
+	my ($self, $entries, $current, $parent) = @_;
+
+	my $detected = 0;
+	if ($current ne '/') {
+		my @parent_entries = $self->dir($parent);
+		my $basename = basename($current);
+
+		my ($s) = grep {
+			((split(/\s+/, $_, 9))[8] || '') eq $basename
+		} @parent_entries;
+
+		if ($s) {
+			$detected = 1;
+			$s =~ s/$basename/./g;
+			splice @$entries, 0, scalar(@$entries), $s;
+		}
+	}
+
+	if (! $detected) {
+		my ($month, $mday, $hour, $min) = (localtime)[4,3,2,1];
+		my @month_name = qw(
+			Jan  Feb  Mar  Apr May Jun Jul Aug Sep Oct Nov Dec
+		);
+		splice @$entries, 0, scalar(@$entries), (join(' ',
+			'drwxr-xr-x',
+			scalar(@$entries)+2,
+			'-',
+			'-',
+			0,
+			$month_name[$month],
+			$mday,
+			$hour . ':' . $min,
+			'.'
+		));
+	}
 }
 
 1;
