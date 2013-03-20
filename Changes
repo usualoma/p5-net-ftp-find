@@ -1,5 +1,8 @@
 Revision history for Perl extension Net::FTP::Find
 
+0.034   Thu Mar 21 08:42:25 JST 2013
+        - Return empty list from "find" and "finddepth" if getting error.
+		
 0.033   Thu Mar 21 05:47:51 JST 2013
         - Add "/" when calling Net::FTP::dir for some servers.
 		
