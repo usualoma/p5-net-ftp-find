@@ -35,13 +35,14 @@ sub run_test {
 				no strict 'refs';
 
 				my $str_ftp = '';
-				$ftp->find({
+				my $status = $ftp->find({
 					'wanted' => sub {
 						$str_ftp .= ':' . $$k_ftp;
 					},
 					'no_chdir' => $no_chdir,
 					'bydepth' => $bydepth,
 				}, $target);
+				ok($status, "Return value (no_chdir => $no_chdir, bydepth => $bydepth)");
 
 				my $str_fs = '';
                 my $orig_cwd = getcwd();
@@ -65,25 +66,27 @@ sub run_test {
 
 	{
 		my $str_ftp = '';
-		$ftp->find({
+		my $status = $ftp->find({
 			'wanted' => sub {
 				$str_ftp .= $_;
 			},
 			'no_chdir' => 1,
 			'max_depth' => 1,
 		}, $target);
+		ok($status, "Return value: max_depth");
 		is($str_ftp, "$target$target/testdir", 'max_depth')
 	}
 
 	{
 		my %strs_ftp = ();
-		$ftp->find({
+		my $status = $ftp->find({
 			'wanted' => sub {
                 $strs_ftp{$_} = 1;
 			},
 			'no_chdir' => 1,
 			'min_depth' => 0,
 		}, $target);
+		ok($status, "Return value: min_depth");
 		is_deeply(
 			\%strs_ftp,
 			{   "$target/testdir"              => 1,

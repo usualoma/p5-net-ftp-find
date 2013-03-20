@@ -64,13 +64,16 @@ sub find {
 		}
 	}
 
-	my $cwd = $self->pwd;
+	defined(my $cwd = $self->pwd)
+		or return;
 	$cwd =~ s{/*\z}{/} if $cwd;
 
 	foreach my $d (@directories) {
 		&recursive( $self, $d =~ m!\A/! ? '' : $cwd, \%options, $d, 0 )
 			or return;
 	}
+
+	1;
 }
 
 sub recursive {
@@ -90,16 +93,18 @@ sub recursive {
 
 	local $dir;
 	my $orig_cwd = undef;
-	my @entries = ();
+	my $entries;
 	if ($opts->{'no_chdir'}) {
-		@entries = dir_entries( $self, $directory, undef, undef, undef,
-			$depth == 0 );
-		return 1 unless @entries;
+		$entries = dir_entries( $self, $directory, undef, undef, undef,
+			$depth == 0 )
+			or return;
+		return 1 unless @$entries;
 
 		if ($depth == 0) {
-			if (! grep {$_->{data}[0] eq '.'} @entries) {
-				build_start_dir( $self, $opts, \@entries, $directory,
-					dirname($directory) );
+			if (! grep {$_->{data}[0] eq '.'} @$entries) {
+				build_start_dir( $self, $opts, $entries, $directory,
+					dirname($directory) )
+					or return;
 			}
 		}
 
@@ -114,8 +119,9 @@ sub recursive {
 
 		$self->cwd($directory)
 			or return;
-		@entries
-			= dir_entries( $self, '.', undef, undef, undef, $depth == 0 );
+		$entries
+			= dir_entries( $self, '.', undef, undef, undef, $depth == 0 )
+				or return;
 
 		defined($dir = $self->pwd)
 			or return;
@@ -127,20 +133,22 @@ sub recursive {
 		}
 
 		if ($depth == 0) {
-			if (! grep {$_->{data}[0] eq '.'} @entries) {
+			if (! grep {$_->{data}[0] eq '.'} @$entries) {
 				$self->cwd('..')
 					or return;
-				build_start_dir($self, $opts, \@entries, $directory, '.');
+				build_start_dir($self, $opts, $entries, $directory, '.')
+					or return;
 			}
 
-			$self->cwd($orig_cwd);
+			$self->cwd($orig_cwd)
+				or return;
 		}
 
-		return 1 if ! @entries;
+		return 1 if ! @$entries;
 	}
 
 	my @dirs = ();
-	foreach my $e (@entries) {
+	foreach my $e (@$entries) {
 		local (
 			$permissions, $link, $user, $group, $unix_like_system_size, $month, $mday, $year_or_time, $unix_like_system_name
 		) = split(/\s+/, $e->{line}, 9);
@@ -199,7 +207,7 @@ sub recursive {
 
 	if ($orig_cwd) {
 		$self->cwd($orig_cwd)
-			or print(STDERR $self->message . " " . $orig_cwd);
+			or return;
 	}
 
 	1;
@@ -250,10 +258,11 @@ sub build_start_dir {
 
 	my $detected = 0;
 	if ($current ne '/') {
-		my @parent_entries = dir_entries($self, $parent);
+		my $parent_entries = dir_entries($self, $parent)
+			or return;
 		my $basename = basename($current);
 
-		for my $e (@parent_entries) {
+		for my $e (@$parent_entries) {
 			next if $e->{data}[0] ne $basename;
 
 			$detected = 1;
@@ -294,6 +303,8 @@ sub build_start_dir {
 		my ($e) = parse_entries([$line], undef, undef, undef, 1);
 		splice @$entries, 0, scalar(@$entries), $e;
 	}
+
+	1;
 }
 
 sub dir_entries {
@@ -303,12 +314,15 @@ sub dir_entries {
 	if ($directory ne '.' && $directory ne '..') {
 		$directory =~ s{/*\z}{/};
 	}
-	my $list = $self->dir($directory);
+	my $list = $self->dir($directory)
+		or return;
 	parse_entries($list, $tz, $fstype, $error, $preserve_current);
 }
 
 sub parse_entries {
 	my($dir, $tz, $fstype, $error, $preserve_current) = @_;
+
+	return unless $dir;
 
 	if ($preserve_current) {
 		$dir = [ map {
