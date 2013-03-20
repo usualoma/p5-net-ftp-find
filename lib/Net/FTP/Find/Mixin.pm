@@ -3,7 +3,7 @@ package Net::FTP::Find::Mixin;
 use strict;
 use warnings;
 
-our $VERSION = '0.03';
+our $VERSION = '0.031';
 
 use Carp;
 use File::Spec;
