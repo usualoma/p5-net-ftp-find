@@ -8,6 +8,7 @@ our $VERSION = '0.034';
 use Carp;
 use File::Spec;
 use File::Basename;
+use Time::Local qw(timegm);
 use File::Listing;
 
 my @month_name_list = qw(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec);
@@ -17,30 +18,37 @@ sub import {
 	my $pkg = shift || 'Net::FTP';
 
 	no strict 'refs';
-    *{$pkg . '::find'} = \&find;
-    *{$pkg . '::finddepth'} = \&finddepth;
+	*{$pkg . '::find'} = \&find;
+	*{$pkg . '::finddepth'} = \&finddepth;
 }
 
 sub finddepth {
 	my $self = shift;
 	my ($opts, @directories) = @_;
 
+	my %options = (
+		bydepth => 1,
+	);
+
 	if (ref $opts eq 'CODE') {
-		$opts = {
-			'wanted' => $opts,
-		};
+		$options{'wanted'} = $opts;
+	}
+	elsif (ref $opts eq 'HASH') {
+		while (my ($k, $v) = each(%$opts)) {
+			$options{$k} = $v;
+		}
 	}
 
-	$opts->{'bydepth'} = 1;
-
-	&find($self, $opts, @directories);
+	&find($self, \%options, @directories);
 }
 
 sub find {
 	my $self = shift;
 	my ($opts, @directories) = @_;
 
-	my %options = ();
+	my %options = (
+		use_mlsd => 1,
+	);
 
 	if (ref $opts eq 'CODE') {
 		$options{'wanted'} = $opts;
@@ -95,7 +103,8 @@ sub recursive {
 	my $orig_cwd = undef;
 	my $entries;
 	if ($opts->{'no_chdir'}) {
-		$entries = dir_entries( $self, $directory, undef, undef, undef,
+		$entries
+			= dir_entries( $self, $opts, $directory, undef, undef, undef,
 			$depth == 0 )
 			or return;
 		return 1 unless @$entries;
@@ -120,8 +129,9 @@ sub recursive {
 		$self->cwd($directory)
 			or return;
 		$entries
-			= dir_entries( $self, '.', undef, undef, undef, $depth == 0 )
-				or return;
+			= dir_entries( $self, $opts, '.', undef, undef, undef,
+			$depth == 0 )
+			or return;
 
 		defined($dir = $self->pwd)
 			or return;
@@ -150,11 +160,23 @@ sub recursive {
 	my @dirs = ();
 	foreach my $e (@$entries) {
 		local (
-			$permissions, $link, $user, $group, $unix_like_system_size, $month, $mday, $year_or_time, $unix_like_system_name
-		) = split(/\s+/, $e->{line}, 9);
-		local (
+			$permissions, $link, $user, $group, $unix_like_system_size, $month, $mday, $year_or_time, $unix_like_system_name,
 			$_, $type, $size, $ballpark_mtime, $mode
-		) = @{ $e->{data} };
+		);
+
+		if ($e->{mlsd_data}) {
+			(
+				$_, $type, $size, $ballpark_mtime, $mode
+			) = @{ $e->{mlsd_data} };
+		}
+		else {
+			(
+				$permissions, $link, $user, $group, $unix_like_system_size, $month, $mday, $year_or_time, $unix_like_system_name
+			) = split(/\s+/, $e->{line}, 9);
+			(
+				$_, $type, $size, $ballpark_mtime, $mode
+			) = @{ $e->{data} };
+		}
 
 		next if $_ eq '..';
 		next if $_ eq '.' && $depth != 0;
@@ -258,7 +280,7 @@ sub build_start_dir {
 
 	my $detected = 0;
 	if ($current ne '/') {
-		my $parent_entries = dir_entries($self, $parent)
+		my $parent_entries = dir_entries( $self, $opts, $parent )
 			or return;
 		my $basename = basename($current);
 
@@ -309,11 +331,68 @@ sub build_start_dir {
 
 sub dir_entries {
 	my $self = shift;
-	my ($directory, $tz, $fstype, $error, $preserve_current) = @_;
+	my ($opts, $directory, $tz, $fstype, $error, $preserve_current) = @_;
 
 	if ($directory ne '.' && $directory ne '..') {
 		$directory =~ s{/*\z}{/};
 	}
+
+	if (   $opts->{use_mlsd}
+		&& $self->can('_data_cmd')
+		&& ( my $data = $self->_data_cmd('MLSD', $directory) ) )
+	{
+		my $buf;
+		my $res  = '';
+		my $size = ${*$self}{'net_ftp_blksize'};
+		while ( $data->read( $buf, $size ) ) {
+			$res .= $buf;
+		}
+		$data->close;
+
+		my @entries = map {
+			# modify=20121213155349;perm=fle;type=dir;unique=13U8B2F83;UNIX.group=5001;UNIX.mode=0775;UNIX.owner=3430; pub
+			my %data;
+			my ( $infos, $name ) = split ' ', $_, 2;
+			for my $i ( split ';', $infos ) {
+				my ( $k, $v ) = split '=', $i, 2;
+				$data{$k} = $v;
+			}
+
+			$data{modify}
+				=~ /((\d\d)(\d\d\d?))(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)/;
+			my $modify = timegm( $8, $7, $6, $5, $4 - 1,
+				$2 eq '19' ? $3 : ( $1 - 1900 ) );
+
+			+{  line => '',
+				data => [
+					$name,
+					(	 $data{type} =~ m/dir\z/ ? 'd'
+						: $data{type} =~ m/link/  ? 'l'
+						: 'f'
+					),
+					$data{size} || 0,
+					$modify,
+					$data{'UNIX.mode'}
+				],
+				mlsd_data => [
+					$name,
+					(	 $data{type} =~ m/dir\z/ ? 'd'
+						: $data{type} =~ m/link/  ? 'l'
+						: 'f'
+					),
+					$data{size} || 0,
+					$modify,
+					$data{'UNIX.mode'}
+				],
+			};
+		} split( /\n/, $res );
+
+		return wantarray ? @entries : \@entries;
+	}
+	else {
+		$opts->{use_mlsd} = 0;
+	}
+
 	my $list = $self->dir($directory)
 		or return;
 	parse_entries($list, $tz, $fstype, $error, $preserve_current);
