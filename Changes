@@ -1,5 +1,8 @@
 Revision history for Perl extension Net::FTP::Find
 
+0.032   Wed Mar 20 14:17:35 JST 2013
+        - Revised parseing filelist fall back routine.
+
 0.031   Wed Mar 20 10:51:20 JST 2013
         - Enabled to parse filelist that has month suffix.
 		
