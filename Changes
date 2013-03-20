@@ -1,5 +1,10 @@
 Revision history for Perl extension Net::FTP::Find
 
+0.03    Wed Mar 20 10:04:20 JST 2013
+        - Parse filelist by File::Listing.
+		  Enabled to traverse directory in IIS FTP server by this change.
+		- Fix some minor bugs.
+
 0.02    Tue Mar 19 18:02:15 JST 2013
         - Enabled to specify relative path to a target.
         - Enabled to traverse directory in some FTP server that is not returning
