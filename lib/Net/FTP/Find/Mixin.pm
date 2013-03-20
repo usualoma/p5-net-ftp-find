@@ -321,8 +321,8 @@ sub parse_entries {
 			$l =~ s/
 				(\s\d+\s+)
 				(\d+)\S*
-				(?=\s+\d+\s+\d{2}:\d{2})
-			/$1 . $month_name_list[$2]/ex;
+				(?=\s+\d+\s+(\d{2}:\d{2}|\d{4}))
+			/$1 . $month_name_list[$2-1]/ex;
 			my ($data) = File::Listing::parse_dir($l, $tz, $fstype, $error);
 			$data ? +{ line => $_, data => $data } : ()
 		} @$dir;
