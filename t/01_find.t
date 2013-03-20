@@ -76,15 +76,22 @@ sub run_test {
 	}
 
 	{
-		my $str_ftp = '';
+		my %strs_ftp = ();
 		$ftp->find({
 			'wanted' => sub {
-				$str_ftp .= $_;
+                $strs_ftp{$_} = 1;
 			},
 			'no_chdir' => 1,
 			'min_depth' => 0,
 		}, $target);
-		is($str_ftp, "$target/testdir$target/testdir/testfile.txt", 'min_depth');
+		is_deeply(
+			\%strs_ftp,
+			{   "$target/testdir"              => 1,
+				"$target/testdir/0"            => 1,
+				"$target/testdir/testfile.txt" => 1,
+			},
+			'min_depth'
+		);
 	}
 
 	ok($ftp->quit, 'Quit');
