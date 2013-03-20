@@ -3,7 +3,7 @@ package Net::FTP::Find;
 use strict;
 use warnings;
 
-our $VERSION = '0.032';
+our $VERSION = '0.033';
 
 use Carp;
 use File::Spec;

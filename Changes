@@ -1,5 +1,8 @@
 Revision history for Perl extension Net::FTP::Find
 
+0.033   Thu Mar 21 05:47:51 JST 2013
+        - Add "/" when calling Net::FTP::dir for some servers.
+		
 0.032   Wed Mar 20 14:17:35 JST 2013
         - Revised parseing filelist fall back routine.
 
