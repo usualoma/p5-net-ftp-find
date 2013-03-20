@@ -85,7 +85,7 @@ sub recursive {
 		$unix_like_system_size, $unix_like_system_name
 	);
 
-	return
+	return 1
 		if (defined($opts->{'max_depth'}) && $depth > $opts->{'max_depth'});
 
 	local $dir;
@@ -94,7 +94,7 @@ sub recursive {
 	if ($opts->{'no_chdir'}) {
 		my $list = $self->dir($directory);
 		@entries = parse_entries($list, undef, undef, undef, $depth == 0);
-		return unless @entries;
+		return 1 unless @entries;
 
 		if ($depth == 0) {
 			if (! grep {$_->{data}[0] eq '.'} @entries) {
@@ -117,7 +117,8 @@ sub recursive {
 		my $list = $self->dir('.');
 		@entries = parse_entries($list, undef, undef, undef, $depth == 0);
 
-		$dir = $self->pwd;
+		defined($dir = $self->pwd)
+			or return;
 		if ($dir) {
 			$dir =~ s{^/*}{/};
 		}
@@ -135,7 +136,7 @@ sub recursive {
 			$self->cwd($orig_cwd);
 		}
 
-		return if ! @entries || ! $directory;
+		return 1 if ! @entries;
 	}
 
 	my @dirs = ();
