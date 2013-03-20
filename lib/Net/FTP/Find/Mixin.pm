@@ -8,6 +8,9 @@ our $VERSION = '0.02';
 use Carp;
 use File::Spec;
 use File::Basename;
+use File::Listing;
+
+my @month_name_list = qw(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec);
 
 sub import {
 	my $class = shift;
@@ -52,6 +55,15 @@ sub find {
 		croak('no &wanted subroutine given');
 	}
 
+	if ( !$options{'fstype'} ) {
+		$options{'fstype'} = 'unix';
+		if ($self->cmd('SYST') == 2) {
+			if ($self->message =~ m/windows/i) {
+				$options{'fstype'} = 'dosftp';
+			}
+		}
+	}
+
 	my $cwd = $self->pwd;
 	$cwd =~ s{/*\z}{/} if $cwd;
 
@@ -68,7 +80,9 @@ sub recursive {
 	our (
 		$name, $dir,
 		$is_directory, $is_symlink, $mode,
-		$permissions, $link, $user, $group, $size, $month, $mday, $year_or_time
+		$permissions, $link, $user, $group, $size, $month, $mday, $year_or_time,
+		$type, $ballpark_mtime,
+		$unix_like_system_size, $unix_like_system_name
 	);
 
 	return
@@ -78,12 +92,13 @@ sub recursive {
 	my $orig_cwd = undef;
 	my @entries = ();
 	if ($opts->{'no_chdir'}) {
-		@entries = $self->dir($directory);
+		my $list = $self->dir($directory);
+		@entries = parse_entries($list, undef, undef, undef, $depth == 0);
 		return unless @entries;
 
 		if ($depth == 0) {
-			if (! grep {((split(/\s+/, $_, 9))[8] || '') eq '.'} @entries) {
-				build_start_dir( $self, \@entries, $directory,
+			if (! grep {$_->{data}[0] eq '.'} @entries) {
+				build_start_dir( $self, $opts, \@entries, $directory,
 					dirname($directory) );
 			}
 		}
@@ -99,7 +114,8 @@ sub recursive {
 
 		$self->cwd($directory)
 			or return;
-		@entries = $self->dir('.');
+		my $list = $self->dir('.');
+		@entries = parse_entries($list, undef, undef, undef, $depth == 0);
 
 		$dir = $self->pwd;
 		if ($dir) {
@@ -110,10 +126,10 @@ sub recursive {
 		}
 
 		if ($depth == 0) {
-			if (! grep {((split(/\s+/, $_, 9))[8] || '') eq '.'} @entries) {
+			if (! grep {$_->{data}[0] eq '.'} @entries) {
 				$self->cwd('..')
 					or return;
-				build_start_dir($self, \@entries, $directory, '.');
+				build_start_dir($self, $opts, \@entries, $directory, '.');
 			}
 
 			$self->cwd($orig_cwd);
@@ -125,10 +141,12 @@ sub recursive {
 	my @dirs = ();
 	foreach my $e (@entries) {
 		local (
-			$permissions, $link, $user, $group, $size, $month, $mday, $year_or_time, $_
-		) = split(/\s+/, $e, 9);
+			$permissions, $link, $user, $group, $unix_like_system_size, $month, $mday, $year_or_time, $unix_like_system_name
+		) = split(/\s+/, $e->{line}, 9);
+		local (
+			$_, $type, $size, $ballpark_mtime, $mode
+		) = @{ $e->{data} };
 
-		next unless $_;
 		next if $_ eq '..';
 		next if $_ eq '.' && $depth != 0;
 
@@ -137,8 +155,6 @@ sub recursive {
 			$_ = $directory;
 		}
 
-		$_ =~ s/\s*->.*//o;
-
 		local $name = $depth == 0 ? $_ : File::Spec->catfile($dir, $_);
 		$_ = $name if $opts->{'no_chdir'} && $depth != 0;
 		my $next = $_;
@@ -146,8 +162,8 @@ sub recursive {
 		$name =~ s/$cwd// if $cwd;
 		$dir  =~ s/$cwd// if $cwd;
 
-		local ($is_directory, $is_symlink, $mode)
-			= &parse_permissions($self, $permissions);
+		local $is_directory = $type eq 'd';
+		local $is_symlink   = substr($type, 0, 1) eq 'l';
 
 		if ($is_directory && $opts->{'bydepth'}) {
 			&recursive($self, $cwd, $opts, $next, $depth+1)
@@ -165,7 +181,8 @@ sub recursive {
 				'name', 'dir',
 				'is_directory', 'is_symlink', 'mode',
 				'permissions', 'link', 'user', 'group', 'size',
-				'month', 'mday', 'year_or_time'
+				'month', 'mday', 'year_or_time',
+				'type', 'ballpark_mtime',
 			) {
 				${'Net::FTP::Find::'.$k} = $$k;
 			}
@@ -228,41 +245,96 @@ sub parse_permissions {
 }
 
 sub build_start_dir {
-	my ($self, $entries, $current, $parent) = @_;
+	my ($self, $opts, $entries, $current, $parent) = @_;
 
 	my $detected = 0;
 	if ($current ne '/') {
-		my @parent_entries = $self->dir($parent);
+		my $list = $self->dir($parent);
+		my @parent_entries = parse_entries($list);
 		my $basename = basename($current);
 
-		my ($s) = grep {
-			((split(/\s+/, $_, 9))[8] || '') eq $basename
-		} @parent_entries;
+		for my $e (@parent_entries) {
+			next if $e->{data}[0] ne $basename;
 
-		if ($s) {
 			$detected = 1;
-			$s =~ s/$basename/./g;
-			splice @$entries, 0, scalar(@$entries), $s;
+			$e->{line} =~ s/$basename$/./g;
+			$e->{data}[0] = '.';
+			splice @$entries, 0, scalar(@$entries), $e;
 		}
 	}
 
 	if (! $detected) {
-		my ($month, $mday, $hour, $min) = (localtime)[4,3,2,1];
-		my @month_name = qw(
-			Jan  Feb  Mar  Apr May Jun Jul Aug Sep Oct Nov Dec
-		);
-		splice @$entries, 0, scalar(@$entries), (join(' ',
-			'drwxr-xr-x',
-			scalar(@$entries)+2,
-			'-',
-			'-',
-			0,
-			$month_name[$month],
-			$mday,
-			$hour . ':' . $min,
-			'.'
-		));
+		my ($year, $month, $mday, $hour, $min) = (localtime)[5,4,3,2,1];
+		my $line;
+		if ($opts->{'fstype'} eq 'dosftp') {
+			$line = join(
+				' ',
+				sprintf( '%02d-%02d-%d',
+					$month + 1, $mday, substr( $year + 1900, 2 ) ),
+				(   $hour < 12
+					? sprintf( '%02d:%02dAM', $hour,	  $min )
+					: sprintf( '%02d:%02dPM', $hour - 12, $min )
+				),
+				'<DIR>', '.'
+			);
+		}
+		else {
+			$line = join(' ',
+				'drwxr-xr-x',
+				scalar(@$entries)+2,
+				'-',
+				'-',
+				0,
+				$month_name_list[$month],
+				$mday,
+				$hour . ':' . $min,
+				'.'
+			);
+		}
+		my ($e) = parse_entries([$line], undef, undef, undef, 1);
+		splice @$entries, 0, scalar(@$entries), $e;
 	}
+}
+
+sub parse_entries {
+	my($dir, $tz, $fstype, $error, $preserve_current) = @_;
+
+	if ($preserve_current) {
+		$dir = [ map {
+			my $e = $_;
+			$e =~ s/(\s\S*)d(?=\S*\z)/$1dd/g;
+			$e =~ s/(?<=\s)\.\z/d./g;
+			$e;
+		} @$dir ];
+	}
+
+	my @parsed = map {
+		my ($data) = File::Listing::parse_dir($_, $tz, $fstype, $error);
+		$data ? +{ line => $_, data => $data } : ()
+	} @$dir;
+
+	if (@$dir && ! @parsed) {
+		# Fallback
+		@parsed = map {
+			my $l = $_;
+			$l =~ s/
+				(\s\d+\s+)
+				(\d+)
+				(?=\s+\d+\s+\d{2}:\d{2})
+			/$1 . $month_name_list[$2]/ex;
+			my ($data) = File::Listing::parse_dir($l, $tz, $fstype, $error);
+			$data ? +{ line => $_, data => $data } : ()
+		} @$dir;
+	}
+
+	if ($preserve_current) {
+		for (@parsed) {
+			$_->{data}[0] =~ s/dd/d/;
+			$_->{data}[0] =~ s/d\././g;
+		}
+	}
+
+	wantarray ? @parsed : \@parsed;
 }
 
 1;
