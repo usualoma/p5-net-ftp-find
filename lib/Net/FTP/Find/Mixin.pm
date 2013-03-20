@@ -92,8 +92,8 @@ sub recursive {
 	my $orig_cwd = undef;
 	my @entries = ();
 	if ($opts->{'no_chdir'}) {
-		my $list = $self->dir($directory);
-		@entries = parse_entries($list, undef, undef, undef, $depth == 0);
+		@entries = dir_entries( $self, $directory, undef, undef, undef,
+			$depth == 0 );
 		return 1 unless @entries;
 
 		if ($depth == 0) {
@@ -114,8 +114,8 @@ sub recursive {
 
 		$self->cwd($directory)
 			or return;
-		my $list = $self->dir('.');
-		@entries = parse_entries($list, undef, undef, undef, $depth == 0);
+		@entries
+			= dir_entries( $self, '.', undef, undef, undef, $depth == 0 );
 
 		defined($dir = $self->pwd)
 			or return;
@@ -250,8 +250,7 @@ sub build_start_dir {
 
 	my $detected = 0;
 	if ($current ne '/') {
-		my $list = $self->dir($parent);
-		my @parent_entries = parse_entries($list);
+		my @parent_entries = dir_entries($self, $parent);
 		my $basename = basename($current);
 
 		for my $e (@parent_entries) {
@@ -295,6 +294,17 @@ sub build_start_dir {
 		my ($e) = parse_entries([$line], undef, undef, undef, 1);
 		splice @$entries, 0, scalar(@$entries), $e;
 	}
+}
+
+sub dir_entries {
+	my $self = shift;
+	my ($directory, $tz, $fstype, $error, $preserve_current) = @_;
+
+	if ($directory ne '.' && $directory ne '..') {
+		$directory =~ s{/*\z}{/};
+	}
+	my $list = $self->dir($directory);
+	parse_entries($list, $tz, $fstype, $error, $preserve_current);
 }
 
 sub parse_entries {
