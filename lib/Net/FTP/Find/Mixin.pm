@@ -154,7 +154,11 @@ sub recursive {
 				or return;
 		}
 
-		return 1 if ! @$entries;
+		if ( !@$entries ) {
+			$self->cwd($orig_cwd)
+				or return;
+			return 1;
+		}
 	}
 
 	my @dirs = ();
