@@ -1,5 +1,9 @@
 Revision history for Perl extension Net::FTP::Find
 
+0.041   Sun Mar 24 11:56:11 JST 2013
+		- Revised tests.
+		- Document is updated.
+
 0.040   Sun Mar 24 10:52:42 JST 2013
         - Use "MLSD" to retrieve entries if a server is supporting.
         - Enabled to use with "Net::FTPSSL".
