@@ -81,6 +81,10 @@ file found similar to the File::Find. Net::FTP::Find provides two functions,
 
 =back
 
+=head2 Return value
+
+B<find> and B<finddepth> will return "1" if getting no error, and return empty list if getting error.
+
 =head2 %options
 
 The first argument to C<find()> is either a code reference to your

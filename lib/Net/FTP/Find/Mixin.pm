@@ -507,6 +507,15 @@ or
   $sub->login('user', 'pass');
   $sub->find(sub { ... }, '/');
 
+or
+
+  use Net::FTPSSL;
+  use Net::FTP::Find::Mixin qw( Net::FTPSSL );
+
+  my $ftp = Net::FTPSSL->new('localhost');
+  $ftp->login('user', 'pass');
+  $ftp->find(sub { ... }, '/');
+
 =head1 AUTHOR
 
 Taku Amano E<lt>taku@toi-planning.netE<gt>
