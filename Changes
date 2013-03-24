@@ -1,5 +1,11 @@
 Revision history for Perl extension Net::FTP::Find
 
+0.040   Sun Mar 24 10:52:42 JST 2013
+        - Use "MLSD" to retrieve entries if a server is supporting.
+        - Enabled to use with "Net::FTPSSL".
+		- Document is updated.
+		- Fix some minor bugs.
+		
 0.034   Thu Mar 21 08:42:25 JST 2013
         - Return empty list from "find" and "finddepth" if getting error.
 		
