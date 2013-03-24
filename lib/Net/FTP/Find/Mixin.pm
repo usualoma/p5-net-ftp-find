@@ -8,6 +8,8 @@ our $VERSION = '0.034';
 use Carp;
 use File::Spec;
 use File::Basename;
+use Time::Local qw(timegm);
+use Net::Cmd;
 use File::Listing;
 
 my @month_name_list = qw(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec);
@@ -17,30 +19,37 @@ sub import {
 	my $pkg = shift || 'Net::FTP';
 
 	no strict 'refs';
-    *{$pkg . '::find'} = \&find;
-    *{$pkg . '::finddepth'} = \&finddepth;
+	*{$pkg . '::find'} = \&find;
+	*{$pkg . '::finddepth'} = \&finddepth;
 }
 
 sub finddepth {
 	my $self = shift;
 	my ($opts, @directories) = @_;
 
+	my %options = (
+		bydepth => 1,
+	);
+
 	if (ref $opts eq 'CODE') {
-		$opts = {
-			'wanted' => $opts,
-		};
+		$options{'wanted'} = $opts;
+	}
+	elsif (ref $opts eq 'HASH') {
+		while (my ($k, $v) = each(%$opts)) {
+			$options{$k} = $v;
+		}
 	}
 
-	$opts->{'bydepth'} = 1;
-
-	&find($self, $opts, @directories);
+	&find($self, \%options, @directories);
 }
 
 sub find {
 	my $self = shift;
 	my ($opts, @directories) = @_;
 
-	my %options = ();
+	my %options = (
+		use_mlsd => 1,
+	);
 
 	if (ref $opts eq 'CODE') {
 		$options{'wanted'} = $opts;
@@ -57,8 +66,9 @@ sub find {
 
 	if ( !$options{'fstype'} ) {
 		$options{'fstype'} = 'unix';
-		if ($self->cmd('SYST') == 2) {
-			if ($self->message =~ m/windows/i) {
+		my $res = _command( $self, 'SYST' );
+		if ( $res->[0] == CMD_OK ) {
+			if ( $res->[1] =~ m/windows/i ) {
 				$options{'fstype'} = 'dosftp';
 			}
 		}
@@ -85,7 +95,8 @@ sub recursive {
 		$is_directory, $is_symlink, $mode,
 		$permissions, $link, $user, $group, $size, $month, $mday, $year_or_time,
 		$type, $ballpark_mtime,
-		$unix_like_system_size, $unix_like_system_name
+		$unix_like_system_size, $unix_like_system_name,
+		$mlsd_facts, $mtime,
 	);
 
 	return 1
@@ -95,7 +106,8 @@ sub recursive {
 	my $orig_cwd = undef;
 	my $entries;
 	if ($opts->{'no_chdir'}) {
-		$entries = dir_entries( $self, $directory, undef, undef, undef,
+		$entries
+			= _dir_entries( $self, $opts, $directory, undef, undef, undef,
 			$depth == 0 )
 			or return;
 		return 1 unless @$entries;
@@ -120,8 +132,9 @@ sub recursive {
 		$self->cwd($directory)
 			or return;
 		$entries
-			= dir_entries( $self, '.', undef, undef, undef, $depth == 0 )
-				or return;
+			= _dir_entries( $self, $opts, '.', undef, undef, undef,
+			$depth == 0 )
+			or return;
 
 		defined($dir = $self->pwd)
 			or return;
@@ -144,7 +157,11 @@ sub recursive {
 				or return;
 		}
 
-		return 1 if ! @$entries;
+		if ( !@$entries ) {
+			$self->cwd($orig_cwd)
+				or return;
+			return 1;
+		}
 	}
 
 	my @dirs = ();
@@ -155,6 +172,7 @@ sub recursive {
 		local (
 			$_, $type, $size, $ballpark_mtime, $mode
 		) = @{ $e->{data} };
+		local $mlsd_facts = $e->{mlsd_facts} || undef;
 
 		next if $_ eq '..';
 		next if $_ eq '.' && $depth != 0;
@@ -174,6 +192,14 @@ sub recursive {
 		local $is_directory = $type eq 'd';
 		local $is_symlink   = substr($type, 0, 1) eq 'l';
 
+		local $mtime;
+		if ($mlsd_facts) {
+			$mtime = $ballpark_mtime;
+		}
+		elsif ($type eq 'f' && $opts->{fetch_mtime}) {
+			$mtime = _mdtm_gmt($self, $_);
+		}
+
 		if ($is_directory && $opts->{'bydepth'}) {
 			&recursive($self, $cwd, $opts, $next, $depth+1)
 				or return;
@@ -186,13 +212,11 @@ sub recursive {
 			local $_ = '.' if (! $opts->{'no_chdir'}) && $depth == 0;
 
 			no strict 'refs';
-			foreach my $k (
-				'name', 'dir',
-				'is_directory', 'is_symlink', 'mode',
-				'permissions', 'link', 'user', 'group', 'size',
-				'month', 'mday', 'year_or_time',
-				'type', 'ballpark_mtime',
-			) {
+			foreach my $k (qw(
+				name dir is_directory is_symlink mode
+				permissions link user group size month mday year_or_time
+				type ballpark_mtime mtime mlsd_facts
+			)) {
 				${'Net::FTP::Find::'.$k} = $$k;
 			}
 
@@ -213,52 +237,12 @@ sub recursive {
 	1;
 }
 
-sub parse_permissions {
-	my $self = shift;
-	my ($permissions) = @_;
-	my $mode = 0;
-
-	my ($type, @perms) = split(//, $permissions);
-
-	my $num = 1;
-	my $index = 0;
-	foreach my $p (reverse(@perms)) {
-		if ($p ne '-') {
-			if ($index == 0 && $p eq 't') {
-				$mode += $num + (2**9-1+1);
-			}
-			elsif ($index == 0 && $p eq 'T') {
-				$mode += (2**9-1+1);
-			}
-			elsif ($index == 2 && $p eq 's') {
-				$mode += $num + (2**9-1+2);
-			}
-			elsif ($index == 2 && $p eq 'S') {
-				$mode += (2**9-1+2);
-			}
-			elsif ($index == 5 && $p eq 's') {
-				$mode += $num + (2**9-1+4);
-			}
-			elsif ($index == 5 && $p eq 'S') {
-				$mode += (2**9-1+4);
-			}
-			else {
-				$mode += $num;
-			}
-		}
-		$num *= 2;
-		$index++;
-	}
-
-	($type eq 'd', $type eq 'l', $mode);
-}
-
 sub build_start_dir {
 	my ($self, $opts, $entries, $current, $parent) = @_;
 
 	my $detected = 0;
 	if ($current ne '/') {
-		my $parent_entries = dir_entries($self, $parent)
+		my $parent_entries = _dir_entries( $self, $opts, $parent )
 			or return;
 		my $basename = basename($current);
 
@@ -295,8 +279,8 @@ sub build_start_dir {
 				'-',
 				0,
 				$month_name_list[$month],
-				$mday,
-				$hour . ':' . $min,
+				sprintf('%02d', $mday),
+				sprintf('%02d:%02d', $hour, $min),
 				'.'
 			);
 		}
@@ -307,16 +291,152 @@ sub build_start_dir {
 	1;
 }
 
-sub dir_entries {
+sub _list {
 	my $self = shift;
-	my ($directory, $tz, $fstype, $error, $preserve_current) = @_;
+
+	if ( $self->isa('Net::FTPSSL') ) {
+		my @entries = $self->list(@_);
+		if ( $self->last_status_code != CMD_OK ) {
+			return;
+		}
+		else {
+			[@entries];
+		}
+	}
+	else {
+		$self->dir(@_);
+	}
+}
+
+sub _command {
+	my $self = shift;
+
+	if ( $self->isa('Net::FTPSSL') ) {
+		my $status = $self->command(@_)->response;
+		return [$status, $self->last_message];
+	}
+	else {
+		my $status = $self->cmd(@_);
+		return [$status, $self->message];
+	}
+}
+
+sub _data_command {
+	my $self = shift;
+
+	my $res = '';
+	if ( $self->isa('Net::FTPSSL') ) {
+		unless ( $self->prep_data_channel ) {
+			return;
+		}
+
+		if ( $self->command(@_)->response != CMD_INFO ) {
+			$self->_croak_or_return;
+			return;
+		}
+
+		my ( $tmp, $io, $size );
+
+		$size = ${*$self}{buf_size};
+
+		$io = $self->_get_data_channel;
+		unless ( defined $io ) {
+			return;
+		}
+
+		while ( my $len = sysread $io, $tmp, $size ) {
+			unless ( defined $len ) {
+				next if $! == Net::FTPSSL::EINTR();
+				$self->_croak_or_return;
+				$io->close;
+				return;
+			}
+			$res .= $tmp;
+		}
+
+		$io->close;
+
+		if ( $self->response() != CMD_OK ) {
+			$self->_croak_or_return;
+			return;
+		}
+	}
+	else {
+		my $data = $self->_data_cmd(@_)
+			or return;
+		my $buf;
+		my $size = ${*$self}{'net_ftp_blksize'};
+		while ( $data->read( $buf, $size ) ) {
+			$res .= $buf;
+		}
+		$data->close
+			or return;
+	}
+
+	$res;
+}
+
+sub _mdtm_gmt {
+	my $self = shift;
+
+	if ( $self->isa('Net::FTPSSL') ) {
+		$self->_mdtm(@_);
+	}
+	else {
+		$self->mdtm(@_);
+	}
+}
+
+sub _dir_entries {
+	my $self = shift;
+	my ($opts, $directory, $tz, $fstype, $error, $preserve_current) = @_;
 
 	if ($directory ne '.' && $directory ne '..') {
 		$directory =~ s{/*\z}{/};
 	}
-	my $list = $self->dir($directory)
+
+	if ( $opts->{use_mlsd}
+		&& defined( my $res = _data_command( $self, 'MLSD', $directory ) ) )
+	{
+		my @entries = map {
+			(my $line = $_) =~ s/(\r\n|\r|\n)\z//;
+
+			my %data;
+			my ( $facts, $name ) = split ' ', $line, 2;
+			for my $i ( split ';', $facts ) {
+				my ( $k, $v ) = split '=', $i, 2;
+				$data{lc $k} = $v;
+			}
+
+			$data{modify}
+				=~ /((\d\d)(\d\d\d?))(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)/;
+			my $modify = timegm( $8, $7, $6, $5, $4 - 1,
+				$2 eq '19' ? $3 : ( $1 - 1900 ) );
+
+			+{  line => '',
+				data => [
+					$name,
+					(	 $data{type} =~ m/dir\z/ ? 'd'
+						: $data{type} =~ m/link/ ? 'l'
+						: 'f'
+					),
+					$data{size} || 0,
+					$modify,
+					$data{'UNIX.mode'}
+				],
+				mlsd_facts => \%data,
+			};
+		} split( /\n/, $res );
+
+		return wantarray ? @entries : \@entries;
+	}
+	else {
+		$opts->{use_mlsd} = 0;
+	}
+
+	my $list = _list($self, $directory)
 		or return;
-	parse_entries($list, $tz, $fstype, $error, $preserve_current);
+	parse_entries( $list, $tz, $fstype, $error, $preserve_current );
 }
 
 sub parse_entries {
